@@ -1,0 +1,33 @@
+nombre: Bistro Polanco
+tipo: Restaurante de cocina moderna mexicana e internacional
+ubicacion: Presidente Masaryk 134, Polanco, Miguel Hidalgo, CDMX
+telefono: "+52 55 5280 4000"
+email: reservaciones@bistropolanco.mx
+
+horario:
+  lunes_viernes: "1:00 PM – 11:00 PM"
+  sabado: "1:00 PM – 11:30 PM"
+  domingo: "1:00 PM – 9:00 PM"
+
+servicios:
+  - Comida para cenar en el restaurante
+  - Reservaciones para grupos
+  - Eventos privados (cumpleaños, cenas corporativas)
+  - Terraza exterior
+  - Menú de maridaje con vinos
+
+capacidad:
+  interior: 60 personas
+  terraza: 30 personas
+  salon_privado: 20 personas
+
+politicas:
+  reservaciones: "Se aceptan con mínimo 2 horas de anticipación"
+  cancelaciones: "Cancelaciones sin cargo hasta 2 horas antes"
+  grupos_grandes: "Grupos de más de 10 personas requieren depósito"
+  mascotas: "Permitidas en terraza"
+  estacionamiento: "Valet parking disponible"
+
+redes_sociales:
+  instagram: "@bistropolanco"
+  facebook: "Bistro Polanco"

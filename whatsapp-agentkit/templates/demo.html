@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Bistro Polanco — Demo WhatsApp</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #111b21;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100dvh;
+      overflow: hidden;
+    }
+
+    /* ── Phone shell ── */
+    .phone {
+      width: 100%;
+      max-width: 420px;
+      height: 100dvh;
+      max-height: 860px;
+      display: flex;
+      flex-direction: column;
+      background: #0b141a;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* ── Header ── */
+    .header {
+      background: #202c33;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.4);
+      flex-shrink: 0;
+      z-index: 10;
+    }
+    .header-back {
+      color: #aebac1;
+      font-size: 20px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #1a6b3c, #25d366);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+    .header-info { flex: 1; overflow: hidden; }
+    .header-name {
+      color: #e9edef;
+      font-size: 16px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .header-status {
+      color: #8696a0;
+      font-size: 12px;
+      margin-top: 1px;
+    }
+    .header-status.online { color: #25d366; }
+    .header-icons { display: flex; gap: 18px; color: #aebac1; font-size: 20px; cursor: pointer; }
+
+    /* ── Wallpaper ── */
+    .chat-bg {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 6px 16px;
+      background-color: #0b141a;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Ccircle cx='40' cy='40' r='1.5' fill='%23ffffff08'/%3E%3C/svg%3E");
+      scroll-behavior: smooth;
+    }
+    .chat-bg::-webkit-scrollbar { width: 4px; }
+    .chat-bg::-webkit-scrollbar-thumb { background: #374045; border-radius: 4px; }
+
+    /* ── Date divider ── */
+    .date-divider {
+      text-align: center;
+      margin: 12px 0 8px;
+    }
+    .date-divider span {
+      background: #182229;
+      color: #8696a0;
+      font-size: 11.5px;
+      padding: 4px 10px;
+      border-radius: 8px;
+    }
+
+    /* ── Bubbles ── */
+    .bubble-row {
+      display: flex;
+      margin: 2px 0;
+    }
+    .bubble-row.incoming { justify-content: flex-start; }
+    .bubble-row.outgoing { justify-content: flex-end; }
+
+    .bubble {
+      max-width: 75%;
+      padding: 7px 10px 6px;
+      border-radius: 8px;
+      font-size: 14.2px;
+      line-height: 1.45;
+      word-wrap: break-word;
+      position: relative;
+    }
+
+    .bubble.incoming {
+      background: #202c33;
+      color: #e9edef;
+      border-top-left-radius: 2px;
+    }
+    .bubble.outgoing {
+      background: #005c4b;
+      color: #e9edef;
+      border-top-right-radius: 2px;
+    }
+
+    .bubble-tail-in, .bubble-tail-out {
+      position: absolute;
+      top: 0;
+      width: 8px;
+      height: 13px;
+    }
+    .bubble-tail-in {
+      left: -8px;
+      background: #202c33;
+      clip-path: polygon(100% 0, 0 0, 100% 100%);
+    }
+    .bubble-tail-out {
+      right: -8px;
+      background: #005c4b;
+      clip-path: polygon(0 0, 100% 0, 0 100%);
+    }
+
+    .bubble-time {
+      font-size: 10.5px;
+      color: #8696a0;
+      text-align: right;
+      margin-top: 2px;
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 3px;
+    }
+    .bubble.outgoing .bubble-time { color: #8dcfbc; }
+
+    .check-icon { font-size: 12px; }
+
+    /* Formateo tipo WhatsApp */
+    .bubble b { font-weight: 700; }
+    .bubble em { font-style: italic; }
+
+    /* ── Typing indicator ── */
+    .typing-row { display: none; justify-content: flex-start; margin: 4px 0; }
+    .typing-row.visible { display: flex; }
+    .typing-bubble {
+      background: #202c33;
+      border-radius: 8px;
+      border-top-left-radius: 2px;
+      padding: 10px 14px;
+      display: flex;
+      gap: 4px;
+      align-items: center;
+    }
+    .dot {
+      width: 7px; height: 7px;
+      background: #8696a0;
+      border-radius: 50%;
+      animation: bounce 1.2s infinite;
+    }
+    .dot:nth-child(2) { animation-delay: .2s; }
+    .dot:nth-child(3) { animation-delay: .4s; }
+    @keyframes bounce {
+      0%, 80%, 100% { transform: translateY(0); }
+      40% { transform: translateY(-6px); }
+    }
+
+    /* ── Input bar ── */
+    .input-bar {
+      background: #202c33;
+      padding: 8px 12px;
+      display: flex;
+      align-items: flex-end;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    .input-box {
+      flex: 1;
+      background: #2a3942;
+      border-radius: 24px;
+      padding: 9px 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .emoji-btn { color: #8696a0; font-size: 22px; cursor: pointer; flex-shrink: 0; }
+    #msg-input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: #e9edef;
+      font-size: 15px;
+      resize: none;
+      max-height: 120px;
+      line-height: 1.4;
+      font-family: inherit;
+    }
+    #msg-input::placeholder { color: #8696a0; }
+    .attach-btn { color: #8696a0; font-size: 22px; cursor: pointer; flex-shrink: 0; }
+
+    .send-btn {
+      width: 46px;
+      height: 46px;
+      border-radius: 50%;
+      background: #00a884;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: background .15s;
+    }
+    .send-btn:active { background: #008f72; }
+    .send-btn svg { width: 22px; height: 22px; fill: white; }
+
+    /* ── Demo badge ── */
+    .demo-badge {
+      position: absolute;
+      top: 68px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #182229dd;
+      color: #8696a0;
+      font-size: 11px;
+      padding: 4px 12px;
+      border-radius: 8px;
+      z-index: 5;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    /* ── Quick replies ── */
+    .quick-replies {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 8px 12px 4px;
+      background: #0b141a;
+    }
+    .qr-btn {
+      background: #182229;
+      color: #00a884;
+      border: 1px solid #2a3942;
+      border-radius: 20px;
+      padding: 6px 14px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background .15s;
+      white-space: nowrap;
+    }
+    .qr-btn:active { background: #2a3942; }
+
+    @media (min-width: 480px) {
+      .phone {
+        border-radius: 24px;
+        box-shadow: 0 24px 64px rgba(0,0,0,.7);
+        max-height: 820px;
+      }
+    }
+  </style>
+</head>
+<body>
+<div class="phone">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="header-back">←</div>
+    <div class="avatar">🍽️</div>
+    <div class="header-info">
+      <div class="header-name">Bistro Polanco</div>
+      <div class="header-status online" id="status-text">en línea</div>
+    </div>
+    <div class="header-icons">
+      <span>📹</span>
+      <span>📞</span>
+      <span>⋮</span>
+    </div>
+  </div>
+
+  <!-- Demo badge -->
+  <div class="demo-badge">🤖 Agente de IA con Claude · Demo</div>
+
+  <!-- Chat area -->
+  <div class="chat-bg" id="chat">
+    <div class="date-divider"><span>Hoy</span></div>
+  </div>
+
+  <!-- Typing -->
+  <div class="typing-row" id="typing">
+    <div class="typing-bubble">
+      <div class="dot"></div>
+      <div class="dot"></div>
+      <div class="dot"></div>
+    </div>
+  </div>
+
+  <!-- Quick replies -->
+  <div class="quick-replies" id="quick-replies">
+    <button class="qr-btn" onclick="quickReply('📋 Ver menú')">📋 Ver menú</button>
+    <button class="qr-btn" onclick="quickReply('📅 Hacer reservación')">📅 Reservación</button>
+    <button class="qr-btn" onclick="quickReply('📍 ¿Dónde están?')">📍 Ubicación</button>
+    <button class="qr-btn" onclick="quickReply('🕐 Horarios')">🕐 Horarios</button>
+    <button class="qr-btn" onclick="quickReply('🎉 Eventos privados')">🎉 Eventos</button>
+  </div>
+
+  <!-- Input bar -->
+  <div class="input-bar">
+    <div class="input-box">
+      <span class="emoji-btn">😊</span>
+      <textarea id="msg-input" rows="1" placeholder="Escribe un mensaje…"></textarea>
+      <span class="attach-btn">📎</span>
+    </div>
+    <button class="send-btn" id="send-btn" onclick="sendMessage()">
+      <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+    </button>
+  </div>
+
+</div>
+
+<script>
+  const chat = document.getElementById('chat');
+  const input = document.getElementById('msg-input');
+  const typingRow = document.getElementById('typing');
+  const statusText = document.getElementById('status-text');
+
+  // Unique session per browser tab
+  const SESSION_ID = 'demo-' + Math.random().toString(36).slice(2, 10);
+
+  function nowTime() {
+    return new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: true });
+  }
+
+  function formatWhatsApp(text) {
+    return text
+      .replace(/\*(.*?)\*/g, '<b>$1</b>')
+      .replace(/_(.*?)_/g, '<em>$1</em>')
+      .replace(/\n/g, '<br>');
+  }
+
+  function appendBubble(text, type) {
+    const row = document.createElement('div');
+    row.className = `bubble-row ${type}`;
+
+    const bubble = document.createElement('div');
+    bubble.className = `bubble ${type}`;
+
+    if (type === 'incoming') {
+      const tail = document.createElement('div');
+      tail.className = 'bubble-tail-in';
+      bubble.appendChild(tail);
+    } else {
+      const tail = document.createElement('div');
+      tail.className = 'bubble-tail-out';
+      bubble.appendChild(tail);
+    }
+
+    const content = document.createElement('div');
+    content.innerHTML = formatWhatsApp(text);
+    bubble.appendChild(content);
+
+    const time = document.createElement('div');
+    time.className = 'bubble-time';
+    time.innerHTML = nowTime() + (type === 'outgoing' ? ' <span class="check-icon">✓✓</span>' : '');
+    bubble.appendChild(time);
+
+    row.appendChild(bubble);
+    chat.appendChild(row);
+    scrollDown();
+  }
+
+  function scrollDown() {
+    chat.scrollTop = chat.scrollHeight;
+  }
+
+  function showTyping(show) {
+    typingRow.className = 'typing-row' + (show ? ' visible' : '');
+    if (show) scrollDown();
+    statusText.textContent = show ? 'escribiendo…' : 'en línea';
+    statusText.className = 'header-status' + (show ? '' : ' online');
+  }
+
+  async function sendMessage(overrideText) {
+    const text = overrideText ?? input.value.trim();
+    if (!text) return;
+
+    input.value = '';
+    input.style.height = 'auto';
+    document.getElementById('quick-replies').style.display = 'none';
+    appendBubble(text, 'outgoing');
+    showTyping(true);
+
+    try {
+      const res = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: SESSION_ID, message: text }),
+      });
+      const data = await res.json();
+      showTyping(false);
+      appendBubble(data.reply, 'incoming');
+    } catch (e) {
+      showTyping(false);
+      appendBubble('⚠️ No se pudo conectar con el servidor.', 'incoming');
+    }
+  }
+
+  function quickReply(text) {
+    sendMessage(text);
+  }
+
+  // Auto-resize textarea
+  input.addEventListener('input', () => {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+  });
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  // Load greeting on start
+  (async () => {
+    showTyping(true);
+    await new Promise(r => setTimeout(r, 900));
+    try {
+      const res = await fetch('/greeting');
+      const data = await res.json();
+      showTyping(false);
+      appendBubble(data.greeting, 'incoming');
+    } catch {
+      showTyping(false);
+      appendBubble('¡Hola! 👋 Soy Sofía, la asistente de *Bistro Polanco* 🍽️\n¿En qué puedo ayudarte hoy?', 'incoming');
+    }
+  })();
+</script>
+</body>
+</html>
