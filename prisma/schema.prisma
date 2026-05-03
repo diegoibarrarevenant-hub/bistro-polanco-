@@ -1,0 +1,589 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum Role {
+  CUSTOMER
+  STAFF
+  ADMIN
+  CHEF
+}
+
+// Fine-dining course progression
+enum CourseType {
+  AMUSE_BOUCHE
+  ENTREE
+  SOUP
+  SALAD
+  FISH
+  MAIN
+  CHEESE
+  DESSERT
+  PETIT_FOUR
+  COCKTAIL
+  WINE
+  NON_ALCOHOLIC
+  TASTING_MENU_ITEM
+}
+
+// EU-standard 14 major allergens (used in Mexico via NOM-051)
+enum Allergen {
+  GLUTEN
+  CRUSTACEANS
+  EGGS
+  FISH
+  PEANUTS
+  SOYBEANS
+  MILK
+  TREE_NUTS
+  CELERY
+  MUSTARD
+  SESAME
+  SULPHITES
+  LUPIN
+  MOLLUSCS
+}
+
+enum DietaryFlag {
+  VEGETARIAN
+  VEGAN
+  GLUTEN_FREE
+  DAIRY_FREE
+  NUT_FREE
+  HALAL
+  KOSHER
+  LOW_SODIUM
+  RAW
+}
+
+enum OrderType {
+  DINE_IN
+  TAKEAWAY
+  DELIVERY
+  CATERING
+  TASTING_MENU
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PREPARING
+  READY
+  OUT_FOR_DELIVERY
+  DELIVERED
+  COMPLETED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  PAID
+  PARTIALLY_REFUNDED
+  REFUNDED
+  FAILED
+}
+
+enum PaymentMethod {
+  CARD
+  CASH
+  BANK_TRANSFER
+  GIFT_CARD
+}
+
+enum ReservationStatus {
+  PENDING
+  CONFIRMED
+  SEATED
+  COMPLETED
+  NO_SHOW
+  CANCELLED
+}
+
+enum CateringStatus {
+  INQUIRY
+  QUOTE_SENT
+  NEGOTIATING
+  CONFIRMED
+  DEPOSITED
+  COMPLETED
+  CANCELLED
+}
+
+enum EventType {
+  BIRTHDAY
+  ANNIVERSARY
+  CORPORATE_LUNCH
+  CORPORATE_DINNER
+  WEDDING
+  GRADUATION
+  BUSINESS_MEETING
+  PRIVATE_PARTY
+  OTHER
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// USERS & ACCOUNTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  emailVerified  DateTime?
+  name           String?
+  phone          String?
+  passwordHash   String?
+  role           Role      @default(CUSTOMER)
+  avatarUrl      String?
+  preferredLang  String    @default("es")
+  loyaltyPoints  Int       @default(0)
+  internalNotes  String?   // Staff-only field
+
+  addresses         Address[]
+  orders            Order[]
+  reservations      Reservation[]
+  reviews           Review[]
+  cateringInquiries CateringQuote[]
+  giftCards         GiftCard[]      @relation("GiftCardOwner")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+}
+
+model Address {
+  id         String  @id @default(cuid())
+  userId     String
+  label      String  @default("Casa") // "Casa", "Oficina", "Hotel"
+  street     String
+  interior   String?
+  colony     String
+  city       String  @default("Ciudad de México")
+  state      String  @default("CDMX")
+  postalCode String
+  country    String  @default("MX")
+  latitude   Decimal? @db.Decimal(10, 8)
+  longitude  Decimal? @db.Decimal(11, 8)
+  isDefault  Boolean @default(false)
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders Order[]
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MENU & PRODUCTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Category {
+  id          String  @id @default(cuid())
+  name        String
+  slug        String  @unique
+  description String?
+  imageUrl    String?
+  sortOrder   Int     @default(0)
+  isActive    Boolean @default(true)
+
+  menuItems MenuItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model MenuItem {
+  id          String     @id @default(cuid())
+  categoryId  String
+  name        String
+  slug        String     @unique
+  description String?
+
+  // ── Fine-dining fields absent in generic e-commerce ──────────────────────
+  courseType      CourseType
+  allergens       Allergen[]
+  dietaryFlags    DietaryFlag[]
+  preparationTime Int?          // minutes — shown as "Tiempo de preparación"
+  servingSize     String?       // "Para 2 personas", "Porción de 180g"
+  calories        Int?
+  originStory     String?       // Provenance: "Trufa negra de Périgord, cosechada en enero"
+  chefNotes       String?       // Chef's personal note on the dish's inspiration
+  isChefSpecial   Boolean       @default(false)
+  isSeasonalItem  Boolean       @default(false)
+  seasonLabel     String?       // "Disponible sólo en temporada de invierno"
+
+  // ── Pricing ───────────────────────────────────────────────────────────────
+  basePrice Decimal @db.Decimal(10, 2)
+
+  // ── Availability ─────────────────────────────────────────────────────────
+  isActive      Boolean @default(true)
+  availableFrom String? // "13:00" — only served after this time
+  availableTo   String? // "23:00"
+  availableDays Int[]   // ISO weekday: 1=Mon … 7=Sun
+
+  // ── Media ─────────────────────────────────────────────────────────────────
+  imageUrl      String?
+  galleryImages String[]
+  videoUrl      String?
+
+  // ── Relations ─────────────────────────────────────────────────────────────
+  category         Category          @relation(fields: [categoryId], references: [id])
+  variants         MenuItemVariant[]
+  tastingMenuItems TastingMenuItem[]
+  orderItems       OrderItem[]
+  reviews          Review[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([slug])
+  @@index([categoryId])
+  @@index([isChefSpecial])
+  @@index([isActive])
+}
+
+// Variant examples: "Con proteína adicional (+$120)", "Porción doble (+$200)"
+model MenuItemVariant {
+  id         String  @id @default(cuid())
+  menuItemId String
+  name       String
+  priceExtra Decimal @db.Decimal(10, 2) @default(0)
+  isDefault  Boolean @default(false)
+
+  menuItem   MenuItem    @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  orderItems OrderItem[]
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WINE CELLAR
+// ─────────────────────────────────────────────────────────────────────────────
+
+model WineBottle {
+  id           String   @id @default(cuid())
+  name         String
+  producer     String
+  vintage      Int?
+  region       String
+  country      String
+  varietal     String   // "Cabernet Sauvignon", "Blanc de Blancs"
+  tastingNotes String?
+  priceGlass   Decimal? @db.Decimal(10, 2)
+  priceBottle  Decimal  @db.Decimal(10, 2)
+  stock        Int      @default(0)
+  isActive     Boolean  @default(true)
+  imageUrl     String?
+
+  orderItems OrderItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TASTING MENUS  (high-ticket, multi-course prix-fixe)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model TastingMenu {
+  id             String   @id @default(cuid())
+  name           String   // "Menú Degustación Otoño 2025 — 7 tiempos"
+  slug           String   @unique
+  description    String?
+  courses        Int      // Total number of courses
+  pricePerPerson Decimal  @db.Decimal(10, 2)
+  minGuests      Int      @default(2)
+  maxGuests      Int      @default(12)
+  durationMins   Int?     // Approximate seated duration
+  chefSignature  Boolean  @default(false) // Chef's table experience
+  isActive       Boolean  @default(true)
+  availableFrom  DateTime?
+  availableTo    DateTime?
+  imageUrl       String?
+
+  items      TastingMenuItem[]
+  orderItems OrderItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+model TastingMenuItem {
+  id            String @id @default(cuid())
+  tastingMenuId String
+  menuItemId    String
+  courseOrder   Int    // 1 = first course, 2 = second, …
+  note          String? // "Maridado con Chablis Premier Cru"
+
+  tastingMenu TastingMenu @relation(fields: [tastingMenuId], references: [id], onDelete: Cascade)
+  menuItem    MenuItem    @relation(fields: [menuItemId], references: [id])
+
+  @@unique([tastingMenuId, courseOrder])
+  @@index([menuItemId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ORDERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Order {
+  id          String @id @default(cuid())
+  // Human-readable reference printed on tickets/invoices: BP-20250001
+  orderNumber String @unique
+
+  userId    String?
+  addressId String?
+
+  orderType OrderType
+  status    OrderStatus   @default(PENDING)
+
+  // ── Restaurant-specific order fields ─────────────────────────────────────
+  tableNumber         Int?      // For DINE_IN
+  guestCount          Int?      // Number of diners at the table
+  scheduledFor        DateTime? // Pre-booked delivery / catering date
+  estimatedReadyTime  DateTime?
+  specialInstructions String?   // Dietary restrictions / allergy alert
+  occasionNote        String?   // "Aniversario — mesa con flores y carta"
+
+  // ── Pricing breakdown ─────────────────────────────────────────────────────
+  subtotal       Decimal @db.Decimal(10, 2)
+  deliveryFee    Decimal @db.Decimal(10, 2) @default(0)
+  serviceFee     Decimal @db.Decimal(10, 2) @default(0) // Cargo por servicio
+  taxAmount      Decimal @db.Decimal(10, 2) @default(0) // IVA 16%
+  discountAmount Decimal @db.Decimal(10, 2) @default(0)
+  tipAmount      Decimal @db.Decimal(10, 2) @default(0)
+  totalAmount    Decimal @db.Decimal(10, 2)
+  currency       String  @default("MXN")
+
+  // ── Payment ───────────────────────────────────────────────────────────────
+  paymentStatus PaymentStatus @default(PENDING)
+  paymentMethod PaymentMethod?
+  paymentRef    String?       // External gateway reference (Stripe / Conekta)
+
+  user    User?    @relation(fields: [userId], references: [id])
+  address Address? @relation(fields: [addressId], references: [id])
+  items   OrderItem[]
+  invoice Invoice?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([orderNumber])
+  @@index([status])
+  @@index([scheduledFor])
+  @@index([orderType])
+}
+
+model OrderItem {
+  id            String  @id @default(cuid())
+  orderId       String
+  menuItemId    String?
+  variantId     String?
+  wineBottleId  String?
+  tastingMenuId String?
+
+  name      String  // Name snapshot at time of order (prevents history rot)
+  unitPrice Decimal @db.Decimal(10, 2)
+  quantity  Int
+  lineTotal Decimal @db.Decimal(10, 2)
+  notes     String? // Per-item instruction: "sin cebolla", "término medio"
+
+  order       Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItem    MenuItem?        @relation(fields: [menuItemId], references: [id])
+  variant     MenuItemVariant? @relation(fields: [variantId], references: [id])
+  wineBottle  WineBottle?      @relation(fields: [wineBottleId], references: [id])
+  tastingMenu TastingMenu?     @relation(fields: [tastingMenuId], references: [id])
+
+  @@index([orderId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RESERVATIONS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Reservation {
+  id               String            @id @default(cuid())
+  userId           String?
+  guestName        String
+  guestEmail       String
+  guestPhone       String
+  date             DateTime
+  time             String            // "20:30" — stored separately for easy slot queries
+  guestCount       Int
+  tableNumber      Int?
+  status           ReservationStatus @default(PENDING)
+  specialRequests  String?           // "Silla alta para bebé", "sin gluten"
+  occasionNote     String?           // "Cumpleaños — pastél sorpresa al final"
+  confirmationCode String            @unique @default(cuid())
+  internalNotes    String?           // Staff-only — never exposed to guest
+  depositAmount    Decimal?          @db.Decimal(10, 2)
+  depositPaid      Boolean           @default(false)
+
+  user User? @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([date])
+  @@index([guestEmail])
+  @@index([status])
+  @@index([confirmationCode])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CATERING & EVENTS  (high-ticket async sales flow)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model CateringQuote {
+  id           String @id @default(cuid())
+  userId       String?
+  contactName  String
+  contactEmail String
+  contactPhone String
+  companyName  String?
+
+  // ── Event details ─────────────────────────────────────────────────────────
+  eventType         EventType
+  eventDate         DateTime
+  eventLocation     String
+  guestCount        Int
+  budgetRange       String?   // "MXN 50,000 – 100,000" — free text for initial contact
+  description       String    // Full event brief from the client
+  menuPreference    String?
+  beverageService   Boolean   @default(false)
+  staffIncluded     Boolean   @default(false)
+  equipmentIncluded Boolean   @default(false)
+
+  // ── Sales pipeline ────────────────────────────────────────────────────────
+  status          CateringStatus @default(INQUIRY)
+  quotedAmount    Decimal?       @db.Decimal(12, 2)
+  depositRequired Decimal?       @db.Decimal(12, 2)
+  depositPaid     Boolean        @default(false)
+  internalNotes   String?
+  proposalUrl     String?        // PDF proposal hosted on storage
+
+  user User? @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([eventDate])
+  @@index([status])
+  @@index([contactEmail])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REVIEWS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Review {
+  id         String  @id @default(cuid())
+  userId     String
+  menuItemId String?
+  orderId    String?
+
+  rating      Int     // 1 – 5
+  title       String?
+  body        String?
+  isVerified  Boolean @default(false) // Verified diner
+  isPublished Boolean @default(false)
+  response    String? // Chef or management public reply
+
+  user     User      @relation(fields: [userId], references: [id])
+  menuItem MenuItem? @relation(fields: [menuItemId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([menuItemId])
+  @@index([isPublished])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GIFT CARDS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model GiftCard {
+  id            String   @id @default(cuid())
+  code          String   @unique
+  ownerId       String
+  initialAmount Decimal  @db.Decimal(10, 2)
+  balance       Decimal  @db.Decimal(10, 2)
+  isActive      Boolean  @default(true)
+  expiresAt     DateTime?
+  purchasedBy   String?  // Gifter name
+  message       String?  // Personal message for the recipient
+
+  owner User @relation("GiftCardOwner", fields: [ownerId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([code])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROMOTIONS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Promotion {
+  id             String   @id @default(cuid())
+  code           String   @unique
+  description    String?
+  discountType   String   // "PERCENT" | "FIXED"
+  discountValue  Decimal  @db.Decimal(10, 2)
+  minOrderAmount Decimal? @db.Decimal(10, 2)
+  maxUses        Int?
+  usedCount      Int      @default(0)
+  validFrom      DateTime
+  validTo        DateTime
+  isActive       Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+
+  @@index([code])
+  @@index([isActive])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INVOICES  (Mexican SAT CFDI electronic billing)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Invoice {
+  id            String @id @default(cuid())
+  orderId       String @unique
+  invoiceNumber String @unique
+
+  // ── Mexican SAT / CFDI fields — required for legal invoicing in Mexico ────
+  rfc           String? // Registro Federal de Contribuyentes
+  razonSocial   String? // Legal entity name
+  cfdiUse       String? // "G03 Gastos en general", "D01 Honorarios médicos", …
+  fiscalAddress String?
+  regimenFiscal String? // "601 General de Ley Personas Morales"
+
+  // ── Document storage ──────────────────────────────────────────────────────
+  pdfUrl    String?
+  xmlUrl    String?  // Signed SAT XML (timbrado) — required by Mexican law
+  folio     String?  // SAT UUID folio fiscal
+  stamped   Boolean @default(false) // True once timbrado por el PAC
+
+  order Order @relation(fields: [orderId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
