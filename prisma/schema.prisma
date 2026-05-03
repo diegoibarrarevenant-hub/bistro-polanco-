@@ -1,0 +1,714 @@
+// Longevity Supplements High-Ticket E-Commerce
+// Stack: Next.js App Router + Prisma + PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// USERS & AUTH
+// ─────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  phone        String?
+  passwordHash String?
+  role         UserRole @default(CUSTOMER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  orders              Order[]
+  subscriptions       Subscription[]
+  biomarkerLogs       BiomarkerLog[]
+  reviews             Review[]
+  cart                Cart?
+  protocolEnrollments ProtocolEnrollment[]
+
+  @@index([email])
+}
+
+enum UserRole {
+  CUSTOMER
+  ADMIN
+  ADVISOR
+}
+
+// ─────────────────────────────────────────────
+// CATALOG
+// ─────────────────────────────────────────────
+
+model Product {
+  id      String @id @default(cuid())
+  slug    String @unique
+  name    String
+  // Short hook used in cards — "Maximiza tu NAD+ en 30 días"
+  tagline String
+
+  description String @db.Text
+
+  // Pricing
+  basePrice         Decimal  @db.Decimal(10, 2)
+  subscriptionPrice Decimal? @db.Decimal(10, 2)
+
+  // Supplement identity — required for FDA-compliant labeling
+  servingSize          String
+  servingsPerContainer Int
+  netWeight            String?
+  form                 ProductForm
+
+  // Manufacturer transparency (Glass Box Brand)
+  manufacturerName     String
+  manufacturingCountry String  @default("USA")
+  isCGMPCertified      Boolean @default(false)
+
+  // Biomarker targeting — drives filtering and SEO
+  primaryBiomarker     String?
+  targetBiomarkers     String[]
+  clinicalDoseVerified Boolean  @default(false)
+
+  // SEO
+  metaTitle       String?
+  metaDescription String?
+
+  status            ProductStatus @default(DRAFT)
+  isFeatured        Boolean       @default(false)
+  isSubscriptionOnly Boolean      @default(false)
+  trackInventory    Boolean       @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  variants             ProductVariant[]
+  images               ProductImage[]
+  ingredients          ProductIngredient[]
+  certifications       ProductCertification[]
+  batchCOAs            BatchCOA[]
+  categories           ProductCategory[]
+  protocols            ProtocolProduct[]
+  orderItems           OrderItem[]
+  reviews              Review[]
+  subscriptionItems    SubscriptionItem[]
+  cartItems            CartItem[]
+  scientificReferences ScientificReference[]
+
+  @@index([slug])
+  @@index([status, isFeatured])
+}
+
+enum ProductForm {
+  CAPSULE
+  SOFTGEL
+  POWDER
+  LIQUID
+  TABLET
+  GUMMY
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  OUT_OF_STOCK
+  ARCHIVED
+}
+
+model ProductVariant {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku       String  @unique
+  // "30 servicios", "90 servicios — Mejor Valor"
+  name      String
+
+  price             Decimal  @db.Decimal(10, 2)
+  subscriptionPrice Decimal? @db.Decimal(10, 2)
+  stock             Int      @default(0)
+  servings          Int
+
+  // Batch tracking for COA linkage
+  currentBatchNumber String?
+  expirationDate     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orderItems        OrderItem[]
+  cartItems         CartItem[]
+  subscriptionItems SubscriptionItem[]
+
+  @@index([productId])
+}
+
+model ProductImage {
+  id           String  @id @default(cuid())
+  productId    String
+  product      Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url          String
+  alt          String?
+  isPrimary    Boolean @default(false)
+  displayOrder Int     @default(0)
+}
+
+model Category {
+  id          String  @id @default(cuid())
+  slug        String  @unique
+  name        String
+  description String?
+  imageUrl    String?
+  parentId    String?
+  parent      Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children    Category[] @relation("CategoryHierarchy")
+
+  products ProductCategory[]
+}
+
+model ProductCategory {
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id])
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id])
+
+  @@id([productId, categoryId])
+}
+
+// ─────────────────────────────────────────────
+// INGREDIENTS & SCIENTIFIC EVIDENCE
+// Core differentiator: clinical dose verification
+// ─────────────────────────────────────────────
+
+model Ingredient {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  aliases     String[]
+  description String?  @db.Text
+  createdAt   DateTime @default(now())
+
+  products ProductIngredient[]
+}
+
+model ProductIngredient {
+  id           String     @id @default(cuid())
+  productId    String
+  product      Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  ingredientId String
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id])
+
+  // Exact dose per serving
+  amountMg Decimal @db.Decimal(8, 2)
+  unit     String  @default("mg")
+
+  // Clinical dose range from peer-reviewed studies
+  // isClinicalDose = true when amountMg is within [min, max]
+  clinicalDoseMin  Decimal? @db.Decimal(8, 2)
+  clinicalDoseMax  Decimal? @db.Decimal(8, 2)
+  isClinicalDose   Boolean  @default(false)
+  // If true, we cannot claim "clinical dose" — transparency forces us to not lie
+  isProprietaryBlend Boolean @default(false)
+
+  pubmedStudyIds String[]
+  benefitClaims  String[]
+  displayOrder   Int      @default(0)
+
+  @@unique([productId, ingredientId])
+}
+
+model ScientificReference {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  pubmedId String?
+  title    String
+  authors  String[]
+  journal  String?
+  year     Int?
+  doi      String?
+  url      String?
+  // Plain-language explanation shown to customers (not jargon)
+  summary  String? @db.Text
+  relevance String?
+
+  createdAt DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────
+// CERTIFICATIONS
+// ─────────────────────────────────────────────
+
+model Certification {
+  id          String  @id @default(cuid())
+  name        String  // "NSF Certified for Sport"
+  issuingBody String  // "NSF International"
+  logoUrl     String?
+  description String?
+
+  products ProductCertification[]
+}
+
+model ProductCertification {
+  id              String        @id @default(cuid())
+  productId       String
+  product         Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  certificationId String
+  certification   Certification @relation(fields: [certificationId], references: [id])
+
+  certificateNumber String?
+  issueDate         DateTime?
+  expirationDate    DateTime?
+  // Link to the actual certificate PDF — not a logo, the real document
+  certificateUrl    String?
+  isActive          Boolean  @default(true)
+
+  @@unique([productId, certificationId])
+}
+
+// ─────────────────────────────────────────────
+// CERTIFICATE OF ANALYSIS (per production batch)
+// The "Glass Box Brand" core entity
+// ─────────────────────────────────────────────
+
+model BatchCOA {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  batchNumber       String
+  manufacturingDate DateTime
+  expirationDate    DateTime
+
+  // The lab must be independent from the manufacturer
+  testingLab        String
+  labCertifications String[] // e.g. ["ISO/IEC 17025:2017"]
+
+  documentUrl String  // The actual PDF — not a summary
+  // QR code value embedded in physical packaging that links here
+  qrCode      String?
+
+  // Binary test results shown as a safety checklist in UI
+  identityVerified     Boolean @default(false)
+  potencyVerified      Boolean @default(false)
+  microbiologicalClean Boolean @default(false)
+  heavyMetalsFree      Boolean @default(false)
+  pesticidesClean      Boolean @default(false)
+
+  isPublic  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@unique([productId, batchNumber])
+  @@index([productId, isPublic])
+}
+
+// ─────────────────────────────────────────────
+// PROTOCOLS — the 90-day system
+// Converts $79 bottle sales into $497 program sales
+// ─────────────────────────────────────────────
+
+model Protocol {
+  id   String @id @default(cuid())
+  slug String @unique
+  name String
+  // "El sistema completo para optimizar energía y longevidad"
+  tagline     String
+  description String @db.Text
+
+  durationDays Int     @default(90)
+  price        Decimal @db.Decimal(10, 2)
+  // Shown as strikethrough — sum of individual product prices
+  comparePrice Decimal? @db.Decimal(10, 2)
+
+  primaryGoal      String
+  targetBiomarkers String[]
+  // Week-by-week expected outcomes shown on the sales page
+  expectedResults  String[]
+
+  // Days at which the customer receives a check-in prompt
+  checkInDays Int[] @default([30, 60, 90])
+
+  imageUrl String?
+  videoUrl String?
+
+  status     ProtocolStatus @default(DRAFT)
+  isFeatured Boolean        @default(false)
+  advisorId  String?
+  advisor    ScientificAdvisor? @relation(fields: [advisorId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products    ProtocolProduct[]
+  enrollments ProtocolEnrollment[]
+
+  @@index([slug])
+}
+
+enum ProtocolStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+model ProtocolProduct {
+  id         String   @id @default(cuid())
+  protocolId String
+  protocol   Protocol @relation(fields: [protocolId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id])
+
+  // "Foundation", "Amplifier", "Recovery"
+  role       String
+  dosageNote String?
+  // Some products start in week 3+ to avoid overloading the customer early
+  weekStart  Int     @default(1)
+
+  displayOrder Int @default(0)
+
+  @@unique([protocolId, productId])
+}
+
+model ProtocolEnrollment {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  protocolId String
+  protocol   Protocol @relation(fields: [protocolId], references: [id])
+  orderId    String?
+
+  startDate DateTime         @default(now())
+  endDate   DateTime
+  status    EnrollmentStatus @default(ACTIVE)
+
+  // JSON snapshot of baseline metrics at enrollment day 0
+  // e.g. {"hrv": 45, "sleepScore": 68, "energyLevel": 5}
+  baselineBiomarkers Json?
+
+  checkIns  ProtocolCheckIn[]
+  createdAt DateTime @default(now())
+
+  @@index([userId, status])
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  COMPLETED
+  PAUSED
+  CANCELLED
+}
+
+model ProtocolCheckIn {
+  id           String             @id @default(cuid())
+  enrollmentId String
+  enrollment   ProtocolEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  // 30, 60, or 90
+  dayNumber   Int
+  completedAt DateTime?
+
+  // JSON of measured biomarkers at this check-in
+  // e.g. {"hrv": 52, "sleepScore": 74, "energyLevel": 7}
+  biomarkers Json?
+
+  feelingScore Int?    // 1-10 self-assessment
+  notes        String? @db.Text
+
+  createdAt DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────
+// SCIENTIFIC ADVISOR
+// Real expert as brand asset — cannot be copied by competitors
+// ─────────────────────────────────────────────
+
+model ScientificAdvisor {
+  id       String @id @default(cuid())
+  name     String
+  // "Ph.D. en Bioquímica — Universidad de Stanford"
+  title    String
+  bio      String @db.Text
+  photoUrl String?
+
+  credentials   String[] // ["Ph.D. Biochemistry", "Board Certified Nutritionist"]
+  institutions  String[] // ["Stanford University", "NIH Research Fellow"]
+  specialties   String[] // ["NAD+ metabolism", "Mitochondrial biogenesis"]
+  pubmedProfile String?  // Link to PubMed author profile
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  protocols Protocol[]
+  articles  AdvisorArticle[]
+}
+
+model AdvisorArticle {
+  id        String            @id @default(cuid())
+  advisorId String
+  advisor   ScientificAdvisor @relation(fields: [advisorId], references: [id])
+
+  slug        String   @unique
+  title       String
+  summary     String
+  content     String   @db.Text
+  imageUrl    String?
+  publishedAt DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([publishedAt])
+}
+
+// ─────────────────────────────────────────────
+// BIOMARKER TRACKING
+// Quantitative social proof — "HRV +15% in 60 days"
+// ─────────────────────────────────────────────
+
+model BiomarkerLog {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  loggedAt DateTime @default(now())
+
+  // Wearable-sourced metrics
+  hrv           Int?     // Heart Rate Variability (ms)
+  restingHR     Int?     // Resting Heart Rate (bpm)
+  sleepScore    Int?     // 0–100
+  deepSleepMins Int?
+  vo2Max        Decimal? @db.Decimal(5, 2)
+
+  // Self-reported
+  energyLevel Int?    // 1–10
+  weight      Decimal? @db.Decimal(5, 2)
+
+  // Optional bloodwork panel
+  nadLevel Decimal? @db.Decimal(8, 2) // NAD+ in μM
+
+  source BiomarkerSource @default(MANUAL)
+  notes  String?
+
+  @@index([userId, loggedAt])
+}
+
+enum BiomarkerSource {
+  MANUAL
+  OURA
+  WHOOP
+  APPLE_HEALTH
+  GARMIN
+  BLOODWORK
+}
+
+// ─────────────────────────────────────────────
+// REVIEWS
+// ─────────────────────────────────────────────
+
+model Review {
+  id        String  @id @default(cuid())
+  userId    String
+  user      User    @relation(fields: [userId], references: [id])
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+
+  rating Int    // 1–5
+  title  String?
+  body   String @db.Text
+
+  isVerifiedPurchase   Boolean @default(false)
+  usageDurationDays    Int?
+  // Quantitative claim from biomarker data — "HRV subió 15%, sleep score +8"
+  biomarkerImprovement String?
+
+  isPublished Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([productId, isPublished])
+}
+
+// ─────────────────────────────────────────────
+// CART
+// ─────────────────────────────────────────────
+
+model Cart {
+  id        String   @id @default(cuid())
+  userId    String?  @unique
+  user      User?    @relation(fields: [userId], references: [id])
+  sessionId String?  @unique // Guest cart
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  expiresAt DateTime?
+
+  items CartItem[]
+}
+
+model CartItem {
+  id        String         @id @default(cuid())
+  cartId    String
+  cart      Cart           @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product        @relation(fields: [productId], references: [id])
+  variantId String?
+  variant   ProductVariant? @relation(fields: [variantId], references: [id])
+
+  quantity       Int
+  isSubscription Boolean @default(false)
+  protocolId     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// ORDERS
+// ─────────────────────────────────────────────
+
+model Order {
+  id          String @id @default(cuid())
+  orderNumber String @unique @default(cuid())
+  userId      String
+  user        User   @relation(fields: [userId], references: [id])
+
+  status OrderStatus @default(PENDING)
+
+  subtotal       Decimal @db.Decimal(10, 2)
+  discountAmount Decimal @db.Decimal(10, 2) @default(0)
+  shippingAmount Decimal @db.Decimal(10, 2) @default(0)
+  taxAmount      Decimal @db.Decimal(10, 2) @default(0)
+  total          Decimal @db.Decimal(10, 2)
+  currency       String  @default("USD")
+
+  paymentStatus    PaymentStatus @default(PENDING)
+  paymentMethod    String?
+  stripePaymentId  String?
+  stripeCustomerId String?
+
+  // Stored as JSON snapshot — address must not change if customer updates profile
+  shippingAddress Json
+
+  trackingNumber  String?
+  shippingCarrier String?
+  shippedAt       DateTime?
+  deliveredAt     DateTime?
+
+  // 90-day money-back guarantee — core to the sales argument
+  guaranteeExpiresAt  DateTime?
+  guaranteeClaimedAt  DateTime?
+
+  // If generated by a subscription renewal
+  subscriptionId String?
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id])
+
+  notes String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items               OrderItem[]
+  protocolEnrollments ProtocolEnrollment[]
+
+  @@index([userId, status])
+  @@index([createdAt])
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+model OrderItem {
+  id        String          @id @default(cuid())
+  orderId   String
+  order     Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product         @relation(fields: [productId], references: [id])
+  variantId String?
+  variant   ProductVariant? @relation(fields: [variantId], references: [id])
+
+  quantity   Int
+  unitPrice  Decimal @db.Decimal(10, 2)
+  totalPrice Decimal @db.Decimal(10, 2)
+
+  isProtocol Boolean @default(false)
+  protocolId String?
+
+  // Price/name snapshot at purchase time — products change, orders must not
+  productSnapshot Json
+}
+
+// ─────────────────────────────────────────────
+// SUBSCRIPTIONS
+// Recurring revenue — the primary LTV driver
+// ─────────────────────────────────────────────
+
+model Subscription {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  status           SubscriptionStatus    @default(ACTIVE)
+  billingFrequency SubscriptionFrequency @default(MONTHLY)
+  nextBillingDate  DateTime
+  lastBilledAt     DateTime?
+
+  stripeSubscriptionId String? @unique
+  stripeCustomerId     String?
+
+  subtotal        Decimal @db.Decimal(10, 2)
+  discountPercent Int     @default(0)
+
+  // JSON snapshot — same reasoning as Order.shippingAddress
+  shippingAddress Json
+
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  cancelledAt        DateTime?
+  cancellationReason String?
+
+  items  SubscriptionItem[]
+  orders Order[]
+
+  @@index([userId, status])
+  @@index([nextBillingDate, status])
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+  PAYMENT_FAILED
+  EXPIRED
+}
+
+enum SubscriptionFrequency {
+  MONTHLY
+  BIMONTHLY
+  QUARTERLY
+}
+
+model SubscriptionItem {
+  id             String         @id @default(cuid())
+  subscriptionId String
+  subscription   Subscription   @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  productId      String
+  product        Product        @relation(fields: [productId], references: [id])
+  variantId      String?
+  variant        ProductVariant? @relation(fields: [variantId], references: [id])
+
+  quantity  Int
+  unitPrice Decimal @db.Decimal(10, 2)
+}
